@@ -46,12 +46,22 @@ func Server(port string) {
 func handleConnection(conn net.Conn) {
 	defer conn.Close()
 
-	// Send welcome message and prompt for name
 	welcomeMessage(conn)
-
 	scanner := bufio.NewScanner(conn)
 	scanner.Scan()
 	name := scanner.Text()
+
+	// Validate the uniqueness of the name
+	mu.Lock()
+	for _, existingName := range clients {
+		if existingName == name {
+			conn.Write([]byte("This name is already in use. Please try again with a different name.\n"))
+			conn.Close()
+			mu.Unlock()
+			return
+		}
+	}
+	mu.Unlock()
 
 	if name == "" {
 		conn.Write([]byte("Name cannot be empty!\n"))
@@ -63,6 +73,7 @@ func handleConnection(conn net.Conn) {
 	mu.Unlock()
 
 	broadcast(fmt.Sprintf("[%s] has joined the chat...\n", name))
+	logActivity(fmt.Sprintf("Client [%s] joined the chat.", name))
 
 	mu.Lock()
 	for _, msg := range messages {
@@ -74,20 +85,28 @@ func handleConnection(conn net.Conn) {
 		scanner.Scan()
 		message := scanner.Text()
 
-		if message == "" { // Check for disconnection (EOF)
+		if message == "" {
 			break
 		}
 
-		if strings.HasPrefix(message, "/name ") { // Handle name change command
+		if strings.HasPrefix(message, "/name ") {
 			newName := strings.TrimSpace(strings.TrimPrefix(message, "/name "))
 			if newName != "" && newName != name {
-				oldName := name
 				mu.Lock()
-				clients[conn] = newName // Update client name in map
+				for _, existingName := range clients {
+					if existingName == newName {
+						conn.Write([]byte("This name is already taken. Choose a different one.\n"))
+						mu.Unlock()
+						continue
+					}
+				}
+				oldName := name
+				clients[conn] = newName
 				mu.Unlock()
 				broadcast(fmt.Sprintf("[%s] has changed their name to [%s]\n", oldName, newName))
-				name = newName // Update local variable for current connection's name
-				continue       // Skip broadcasting this message as it's a command.
+				logActivity(fmt.Sprintf("Client [%s] changed their name to [%s].", oldName, newName))
+				name = newName
+				continue
 			}
 		}
 
@@ -95,30 +114,29 @@ func handleConnection(conn net.Conn) {
 		messageWithTime := fmt.Sprintf("[%s][%s]: %s\n", timestamp, name, message)
 
 		mu.Lock()
-		messages = append(messages, messageWithTime) // Save message for future clients
+		messages = append(messages, messageWithTime)
 		mu.Unlock()
 
-		broadcast(messageWithTime) // Broadcast message to all clients
+		broadcast(messageWithTime)
 	}
 
 	mu.Lock()
-	delete(clients, conn) // Remove client from map on disconnect
+	delete(clients, conn)
 	mu.Unlock()
 
-	broadcast(fmt.Sprintf("[%s] has left our chat...\n", name))
+	broadcast(fmt.Sprintf("[%s] has left the chat.\n", name))
+	logActivity(fmt.Sprintf("Client [%s] left the chat.", name))
 }
 
-// Broadcast a message to all clients
 func broadcast(message string) {
 	mu.Lock()
 	defer mu.Unlock()
 	for conn := range clients {
 		conn.Write([]byte(message))
-		logActivity(message) // Log activity when broadcasting messages.
 	}
+	logActivity(message)
 }
 
-// Log activity to a file (optional implementation).
 func logActivity(activity string) {
 	f, err := os.OpenFile("server.log", os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o644)
 	if err != nil {
@@ -132,11 +150,10 @@ func logActivity(activity string) {
 	}
 }
 
-// Function to send welcome message.
 func welcomeMessage(conn net.Conn) {
 	conn.Write([]byte("Welcome to TCP-Chat!\n"))
 	conn.Write([]byte("         _nnnn_\n        dGGGGMMb\n       @p~qp~~qMb\n       M|@||@) M|\n       @,----.JM|\n      JS^\\__/  qKL\n     dZP        qKRb\n    dZP          qKKb\n   fZP            SMMb\n   HZM            MMMM\n   FqM            MMMM\n"))
-	conn.Write([]byte(` __| ".        |\dS"qML`))
-	conn.Write([]byte("\n |    `.       | `' \\Zq\n_)      \\.___.,|     .'\n\\____   )MMMMMP|   .'\n     `-'       `--'"))
+	conn.Write([]byte(`__| ".        |\dS"qML`))
+	conn.Write([]byte("\n |    .       | ' \\Zq\n_)      \\.___.,|     .'\n\\____   )MMMMMP|   .'\n     -'       --'"))
 	conn.Write([]byte("\n[ENTER YOUR NAME]: "))
 }

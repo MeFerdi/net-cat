@@ -15,23 +15,18 @@ func Client(host, port string) {
 	}
 	defer conn.Close()
 
-	fmt.Printf("Welcome to TCP-Chat!\n")
-	fmt.Printf(" |    `.       | `' \\Zq\n     `-'       `--'")
 	fmt.Print("[ENTER YOUR NAME]: ")
 	scanner := bufio.NewScanner(os.Stdin)
 	scanner.Scan()
 	name := scanner.Text()
 
-	// Validate non-empty name
 	if name == "" {
 		fmt.Println("Name cannot be empty!")
 		os.Exit(1)
 	}
 
-	// Send name to server
 	conn.Write([]byte(name + "\n"))
 
-	// Receive previous messages
 	go func() {
 		for {
 			message := make([]byte, 1024)
@@ -44,9 +39,7 @@ func Client(host, port string) {
 		}
 	}()
 
-	// Send messages to server
 	for {
-		fmt.Print("Enter message: ")
 		scanner.Scan()
 		message := scanner.Text()
 		if message != "" {
